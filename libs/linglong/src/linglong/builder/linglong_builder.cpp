@@ -256,15 +256,19 @@ utils::error::Result<void> splitDevelop(QString installFilepath,
     for (auto rule : installRules) {
         // 计算进度
         ruleIndex++;
-        auto percentage = ruleIndex * 100 / installRules.length();
-        // /opt/apps/${appid} to $PROJECT_ROOT/.../files
-        // /runtime/ to $PROJECT_ROOT/
-        rule.replace(0, prefix.length(), src);
+        auto percentage = ruleIndex * 100 / installRules.length(); // NOLINT
+        // 统计进度
         if (handleProgress) {
             handleProgress(rule, percentage);
         }
+        // 跳过注释
+        if (rule.startsWith("#")) {
+            continue;
+        }
         // 如果不以^符号开头，当作普通路径使用
         if (!rule.startsWith("^")) {
+            // replace $prefix with $PROJECT_ROOT/output/$model/files
+            rule.replace(0, prefix.length(), src);
             QFileInfo info(rule);
             // 链接指向的文件如果不存在，info.exists会返回false
             // 所以要先判断文件是否是链接
@@ -279,6 +283,10 @@ utils::error::Result<void> splitDevelop(QString installFilepath,
             }
             continue;
         }
+        // replace $prefix with $PROJECT_ROOT/output/$model/files
+        // TODO(wurongjie) 应该只替换一次, 避免路径包含多个prefix
+        // 但不能使用 rule.replace(0, prefix.length), 会导致正则匹配错误
+        rule.replace(prefix, src);
         // convert prefix in container to real path in host
         QRegularExpression re(rule);
         // reverse files in src
@@ -674,6 +682,14 @@ utils::error::Result<void> Builder::build(const QStringList &args) noexcept
     }
 
     qDebug() << "generate app info";
+
+    static QRegularExpression appIDReg(
+      "[a-zA-Z0-9][-a-zA-Z0-9]{0,62}(\\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})+");
+    auto matches = appIDReg.match(QString::fromStdString(this->project.package.id));
+    if (not(matches.isValid() && matches.hasMatch())) {
+        qWarning() << "This app id does not follow the reverse domain name notation convention. "
+                      "See https://wikipedia.org/wiki/Reverse_domain_name_notation";
+    }
     // when the base version is likes 20.0.0.1, warning that it is a full version
     // if the base version is likes 20.0.0, we should also write 20.0.0 to info.json
     if (fuzzyBase->version->tweak) {
@@ -786,9 +802,9 @@ utils::error::Result<void> Builder::build(const QStringList &args) noexcept
         return LINGLONG_ERR(localLayer);
     }
     printReplacedText(QString("%1%2%3%4")
-                        .arg(info.id.c_str(), -25)
-                        .arg(info.version.c_str(), -15)
-                        .arg("binary", -15)
+                        .arg(info.id.c_str(), -25)      // NOLINT
+                        .arg(info.version.c_str(), -15) // NOLINT
+                        .arg("develop", -15)            // NOLINT
                         .arg("complete\n")
                         .toStdString(),
                       2);

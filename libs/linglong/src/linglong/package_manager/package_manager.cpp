@@ -211,6 +211,10 @@ QVariantMap PackageManager::installFromLayer(const QDBusUnixFileDescriptor &fd) 
           }
 
           pullDependency(taskRef, *info, isDevelop);
+          if (taskRef.currentStatus() == InstallTask::Failed
+              || taskRef.currentStatus() == InstallTask::Canceled) {
+              return;
+          }
 
           auto result = this->repo.importLayerDir(*layerDir);
           if (!result) {
@@ -664,6 +668,12 @@ void PackageManager::Install(InstallTask &taskContext,
         pullDependency(taskContext, *info, develop);
     }
 
+    // check the status of pull runtime and foundation
+    if (taskContext.currentStatus() == InstallTask::Failed
+        || taskContext.currentStatus() == InstallTask::Canceled) {
+        return;
+    }
+
     this->repo.exportReference(ref);
 
     taskContext.updateStatus(InstallTask::Success, "Install " + ref.toString() + " success");
@@ -713,7 +723,7 @@ auto PackageManager::Update(const QVariantMap &parameters) noexcept -> QVariantM
         return toDBusReply(paras);
     }
 
-    auto installedAppFuzzyRef = package::FuzzyReference::parse(QString::fromStdString(paras->package.id));
+    auto installedAppFuzzyRef = fuzzyReferenceFromPackage(paras->package);
     if (!installedAppFuzzyRef) {
         return toDBusReply(installedAppFuzzyRef);
     }
@@ -726,12 +736,7 @@ auto PackageManager::Update(const QVariantMap &parameters) noexcept -> QVariantM
         return toDBusReply(-1, installedAppFuzzyRef->toString() + " not installed.");
     }
 
-    auto fuzzyRef = fuzzyReferenceFromPackage(paras->package);
-    if (!fuzzyRef) {
-        return toDBusReply(fuzzyRef);
-    }
-
-    auto newRef = this->repo.clearReference(*fuzzyRef,
+    auto newRef = this->repo.clearReference(*installedAppFuzzyRef,
                                             {
                                               .forceRemote = true // NOLINT
                                             });
